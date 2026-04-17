@@ -1,13 +1,5 @@
 import './App.css'
-
-function App() {
-
-  return (
-    <>
-      Hi there!
-      Start building your notetaking app here.
-    </>
-  )
+import Dashboard from "./components/Dashboard";
+export default function App() { 
+  return <Dashboard />; 
 }
-
-export default App
