@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -14,12 +16,18 @@ import {
   Bold, Italic, Underline, Strikethrough,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Image, Paperclip,
-  Lock, Pin, Archive, Trash2, Home, Bell, Settings,
-  HelpCircle, Search, SlidersHorizontal,
+  Lock, Pin, Archive, Trash2, Home, Bell,
+  Search, SlidersHorizontal,
   Highlighter, Link, Subscript, Superscript,
-  Undo, Redo, Type, ChevronDown
+  Undo, Redo, Type, ChevronDown, Mic, Square, Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  MAX_AUDIO_FILE_BYTES,
+  MAX_IMAGE_FILE_BYTES,
+  MAX_RECORDED_AUDIO_BYTES,
+  formatBytesHuman,
+} from "@/lib/media-limits";
 
 const COLORS = [
   { id: "yellow", bg: "bg-yellow-50", border: "border-yellow-200", hex: "#fefce8" },
@@ -59,9 +67,70 @@ const HIGHLIGHT_COLORS = [
   "#e9d5ff", "#fed7aa", "#f0fdf4", "#f0f9ff",
 ];
 
-export default function NewNoteEditor({ onClose, onSave }) {
-  const [title, setTitle] = useState("");
-  const [activeColor, setActiveColor] = useState("yellow");
+function countWordsFromEditor(el) {
+  const text = el?.innerText || "";
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function toDatetimeLocalValue(d) {
+  const x = new Date(d);
+  if (Number.isNaN(x.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}T${pad(x.getHours())}:${pad(x.getMinutes())}`;
+}
+
+function pickAudioMimeType() {
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+  if (typeof MediaRecorder === "undefined") return "";
+  for (const t of types) {
+    if (MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return "";
+}
+
+function initialsFromName(name) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "AR";
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || "")
+    .join("");
+}
+
+export default function NewNoteEditor({
+  onClose,
+  onSave,
+  onDeleteNote,
+  onArchiveNote,
+  defaultTitle = "",
+  defaultColor = "yellow",
+  noteId = null,
+  initialHtml = "",
+  defaultFolderId = null,
+  defaultLocked = false,
+  defaultLockPin = "",
+  defaultReminderAt = null,
+  defaultPinned = false,
+  defaultNoteKind = "text",
+  createKind = null,
+  userName = "Archive User",
+  desktopAlertsEnabled = false,
+  desktopAlertsPermission = "default",
+  onToggleDesktopAlerts,
+  onOpenProfile,
+  onSaveFolder,
+}) {
+  const [title, setTitle] = useState(defaultTitle);
+  const [activeColor, setActiveColor] = useState(defaultColor);
+  const [locked, setLocked] = useState(Boolean(defaultLocked));
+  const [lockPin, setLockPin] = useState(defaultLockPin || "");
+  const [reminderValue, setReminderValue] = useState(() =>
+    defaultReminderAt ? toDatetimeLocalValue(new Date(defaultReminderAt)) : ""
+  );
+  const [pinned, setPinned] = useState(Boolean(defaultPinned));
   const [wordCount, setWordCount] = useState(0);
   const [isSaved, setIsSaved] = useState(true);
   const [fontSize, setFontSize] = useState("14");
@@ -72,14 +141,52 @@ export default function NewNoteEditor({ onClose, onSave }) {
   const [activeFormats, setActiveFormats] = useState({});
   const editorRef = useRef(null);
   const saveTimer = useRef(null);
+  const audioImportRef = useRef(null);
+  const imageImportRef = useRef(null);
+  const chunksRef = useRef([]);
+  const mediaRecorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const mimeTypeRef = useRef("");
+  const pendingSaveRef = useRef(true);
+
+  const [recState, setRecState] = useState("idle");
+  const [mediaError, setMediaError] = useState("");
+
+  const isFolderMode = createKind === "folder";
+  const isVoiceKind = defaultNoteKind === "voice" && !isFolderMode;
+  const isImageKind = defaultNoteKind === "image" && !isFolderMode;
+  const displayName = String(userName || "").trim() || "Archive User";
+  const displayInitials = initialsFromName(displayName);
+  const canToggleDesktopAlerts = desktopAlertsPermission !== "unsupported" && desktopAlertsPermission !== "denied";
+  const desktopAlertsStatusText =
+    desktopAlertsPermission === "unsupported"
+      ? "Desktop alerts are not supported in this browser."
+      : desktopAlertsPermission === "denied"
+        ? "Desktop alerts are blocked in browser settings."
+        : desktopAlertsEnabled
+          ? "Desktop alerts are enabled for reminders."
+          : "Desktop alerts are off for reminders.";
+
+  const screenTitle =
+    noteId != null
+      ? "Edit note"
+      : isFolderMode
+        ? "New folder"
+        : createKind === "voice" || defaultNoteKind === "voice"
+          ? "New voice note"
+          : createKind === "image" || defaultNoteKind === "image"
+            ? "New image note"
+            : "New note";
+
+  const primarySaveLabel = isFolderMode
+    ? "Create folder"
+    : defaultNoteKind === "voice"
+      ? "Save voice note"
+      : defaultNoteKind === "image"
+        ? "Save image note"
+        : "Save Note";
 
   const currentBg = COLORS.find((c) => c.id === activeColor);
-
-  const execCommand = useCallback((command, value = null) => {
-    editorRef.current?.focus();
-    document.execCommand(command, false, value);
-    updateActiveFormats();
-  }, []);
 
   const updateActiveFormats = useCallback(() => {
     setActiveFormats({
@@ -96,6 +203,15 @@ export default function NewNoteEditor({ onClose, onSave }) {
     });
   }, []);
 
+  const execCommand = useCallback(
+    (command, value = null) => {
+      editorRef.current?.focus();
+      document.execCommand(command, false, value);
+      updateActiveFormats();
+    },
+    [updateActiveFormats]
+  );
+
   const handleInput = useCallback(() => {
     const text = editorRef.current?.innerText || "";
     const words = text.trim().split(/\s+/).filter(Boolean).length;
@@ -105,6 +221,196 @@ export default function NewNoteEditor({ onClose, onSave }) {
     saveTimer.current = setTimeout(() => setIsSaved(true), 1500);
     updateActiveFormats();
   }, [updateActiveFormats]);
+
+  const appendOrReplaceMedia = useCallback(
+    (htmlSnippet) => {
+      const el = editorRef.current;
+      if (!el) return;
+      const cur = el.innerHTML || "";
+      const normalized = cur.replace(/\s|&nbsp;/gi, "");
+      const bare =
+        !normalized ||
+        normalized === "<p></p>" ||
+        normalized === "<p><br></p>" ||
+        normalized === "<p><br/></p>" ||
+        normalized === "<br>" ||
+        normalized === "<br/>";
+      if (!bare) {
+        el.innerHTML = cur + htmlSnippet;
+      } else {
+        el.innerHTML = htmlSnippet;
+      }
+      handleInput();
+    },
+    [handleInput]
+  );
+
+  const cleanupStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  const resetVoiceRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      pendingSaveRef.current = false;
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    cleanupStream();
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
+    setRecState("idle");
+  }, [cleanupStream]);
+
+  useEffect(() => {
+    return () => {
+      pendingSaveRef.current = false;
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+      cleanupStream();
+    };
+  }, [cleanupStream]);
+
+  const setEditorAudioFromDataUrl = useCallback(
+    (src) => {
+      setMediaError("");
+      const safe = String(src).replace(/"/g, "&quot;");
+      const snippet = `<p><audio controls preload="metadata" style="width:100%;max-width:100%" src="${safe}"></audio></p>`;
+      const el = editorRef.current;
+      if (!el) return;
+      if (/<audio/i.test(el.innerHTML)) {
+        el.innerHTML = el.innerHTML.replace(/<p[^>]*>[\s\S]*?<audio[\s\S]*?<\/audio>[\s\S]*?<\/p>/i, snippet);
+        handleInput();
+        return;
+      }
+      appendOrReplaceMedia(snippet);
+    },
+    [appendOrReplaceMedia, handleInput]
+  );
+
+  const setEditorImageFromDataUrl = useCallback(
+    (src) => {
+      setMediaError("");
+      const safe = String(src).replace(/"/g, "&quot;");
+      const snippet = `<p><img src="${safe}" alt="" style="max-width:100%;height:auto;border-radius:8px" /></p>`;
+      const el = editorRef.current;
+      if (!el) return;
+      if (/<img/i.test(el.innerHTML)) {
+        el.innerHTML = el.innerHTML.replace(/<p[^>]*>[\s\S]*?<img[^>]*>[\s\S]*?<\/p>/i, snippet);
+        handleInput();
+        return;
+      }
+      appendOrReplaceMedia(snippet);
+    },
+    [appendOrReplaceMedia, handleInput]
+  );
+
+  const onPickAudioFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setMediaError("");
+    if (!file.type.startsWith("audio/")) {
+      setMediaError("Please choose an audio file.");
+      return;
+    }
+    if (file.size > MAX_AUDIO_FILE_BYTES) {
+      setMediaError(
+        `This file is about ${formatBytesHuman(file.size)}. Maximum allowed is ${formatBytesHuman(MAX_AUDIO_FILE_BYTES)} for voice notes.`
+      );
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setEditorAudioFromDataUrl(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+
+  const onPickImageFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setMediaError("");
+    if (!file.type.startsWith("image/")) {
+      setMediaError("Please choose an image file.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      setMediaError(
+        `This image is about ${formatBytesHuman(file.size)}. Maximum allowed is ${formatBytesHuman(MAX_IMAGE_FILE_BYTES)} (keeps storage reliable).`
+      );
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setEditorImageFromDataUrl(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+
+  const stopRecording = (save) => {
+    pendingSaveRef.current = save;
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state === "recording") {
+      mr.stop();
+    } else if (!save) {
+      resetVoiceRecording();
+    }
+  };
+
+  const startRecording = async () => {
+    setMediaError("");
+    const mime = pickAudioMimeType();
+    if (!mime || typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setMediaError("Recording is not supported here. Try Chrome or Edge, or use “Upload audio”.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      mimeTypeRef.current = mime;
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream, { mimeType: mime });
+      mediaRecorderRef.current = mr;
+      mr.ondataavailable = (ev) => {
+        if (ev.data.size > 0) chunksRef.current.push(ev.data);
+      };
+      mr.onstop = () => {
+        cleanupStream();
+        const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current || mime });
+        chunksRef.current = [];
+        mediaRecorderRef.current = null;
+        if (!pendingSaveRef.current || blob.size === 0) {
+          setRecState("idle");
+          return;
+        }
+        if (blob.size > MAX_RECORDED_AUDIO_BYTES) {
+          setMediaError(
+            `This recording is about ${formatBytesHuman(blob.size)}. Maximum is ${formatBytesHuman(MAX_RECORDED_AUDIO_BYTES)}. Try a shorter clip or upload a smaller file.`
+          );
+          setRecState("idle");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          setEditorAudioFromDataUrl(String(reader.result));
+          setRecState("idle");
+        };
+        reader.readAsDataURL(blob);
+      };
+      mr.start(250);
+      setRecState("recording");
+    } catch {
+      setMediaError("Microphone access was denied or unavailable.");
+      cleanupStream();
+      setRecState("idle");
+    }
+  };
 
   const handleHeadingChange = (value) => {
     setHeadingStyle(value);
@@ -130,7 +436,9 @@ export default function NewNoteEditor({ onClose, onSave }) {
         const newRange = document.createRange();
         newRange.selectNodeContents(span);
         sel.addRange(newRange);
-      } catch (_) {}
+      } catch {
+        /* selection may not allow surroundContents */
+      }
     }
   };
 
@@ -145,8 +453,58 @@ export default function NewNoteEditor({ onClose, onSave }) {
   };
 
   const handleSave = () => {
+    if (locked && lockPin.trim().length < 4) {
+      window.alert("PIN must be at least 4 characters when lock is enabled.");
+      return;
+    }
     const content = editorRef.current?.innerHTML || "";
-    onSave({ title, content, color: activeColor });
+    const nk = defaultNoteKind === "voice" || defaultNoteKind === "image" ? defaultNoteKind : "text";
+    if (nk === "voice" && !/<audio/i.test(content)) {
+      window.alert("Add a voice clip by recording or uploading audio before saving.");
+      return;
+    }
+    if (nk === "image" && !/<img/i.test(content)) {
+      window.alert("Choose an image before saving.");
+      return;
+    }
+    onSave({
+      id: noteId ?? undefined,
+      title,
+      content,
+      color: activeColor,
+      locked,
+      lockPin: locked ? lockPin.trim() : "",
+      reminderAt: reminderValue ? new Date(reminderValue).toISOString() : null,
+      pinned,
+      folderId: defaultFolderId ?? null,
+      noteKind: nk,
+      caption: "",
+    });
+  };
+
+  const handlePrimaryAction = () => {
+    if (isFolderMode) {
+      if (!onSaveFolder) return;
+      if (locked && lockPin.trim().length < 4) {
+        window.alert("PIN must be at least 4 characters when lock is enabled.");
+        return;
+      }
+      onSaveFolder({
+        name: title.trim() || "New folder",
+        locked,
+        lockPin: locked ? lockPin.trim() : "",
+      });
+      return;
+    }
+    handleSave();
+  };
+
+  const handleDelete = () => {
+    if (noteId == null || !onDeleteNote) return;
+    if (window.confirm("Move this note to trash?")) {
+      onDeleteNote(noteId);
+      onClose();
+    }
   };
 
   const handleImageInsert = () => {
@@ -160,17 +518,22 @@ export default function NewNoteEditor({ onClose, onSave }) {
   };
 
   useEffect(() => {
-    editorRef.current?.focus();
-  }, []);
+    const el = editorRef.current;
+    if (el) {
+      el.innerHTML = initialHtml || "";
+      setWordCount(countWordsFromEditor(el));
+    }
+    el?.focus();
+  }, [initialHtml]);
 
   useEffect(() => {
     return () => clearTimeout(saveTimer.current);
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-gray-50 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" style={{ maxHeight: "92vh" }}>
-        <div className="flex h-full" style={{ minHeight: 600 }}>
+    <div className="fixed inset-0 z-50 bg-gray-50">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-gray-50">
+        <div className="flex min-h-0 flex-1">
           {/* Sidebar */}
           <aside className="w-36 bg-white border-r border-gray-100 flex flex-col py-5 px-4 gap-3 shrink-0">
             <div>
@@ -186,19 +549,22 @@ export default function NewNoteEditor({ onClose, onSave }) {
                 { icon: Lock, label: "Locks" },
                 { icon: Bell, label: "Reminders" },
                 { icon: Trash2, label: "Trash" },
-              ].map(({ icon: Icon, label, active }) => (
-                <button
-                  key={label}
-                  className={cn(
-                    "flex items-center gap-2 text-xs py-1.5 px-2 rounded-xl transition-colors",
-                    active
-                      ? "bg-blue-50 text-blue-700 font-medium border border-blue-200"
-                      : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                  )}
-                >
-                  <Icon className="w-3.5 h-3.5" /> {label}
-                </button>
-              ))}
+              ].map((row) => {
+                const RowIcon = row.icon;
+                return (
+                  <button
+                    key={row.label}
+                    className={cn(
+                      "flex items-center gap-2 text-xs py-1.5 px-2 rounded-xl transition-colors",
+                      row.active
+                        ? "bg-blue-50 text-blue-700 font-medium border border-blue-200"
+                        : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
+                    )}
+                  >
+                    <RowIcon className="w-3.5 h-3.5" /> {row.label}
+                  </button>
+                );
+              })}
             </nav>
           </aside>
 
@@ -214,31 +580,140 @@ export default function NewNoteEditor({ onClose, onSave }) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button className="p-1.5 rounded-full hover:bg-gray-100"><Settings className="w-4 h-4 text-gray-500" /></button>
-                <button className="p-1.5 rounded-full hover:bg-gray-100"><HelpCircle className="w-4 h-4 text-gray-500" /></button>
-                <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-                  <span className="text-xs text-gray-600 font-medium">Elena Vance</span>
-                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">EV</div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenProfile?.()}
+                  className="flex items-center gap-2 pl-2 border-l border-gray-200 rounded-md hover:bg-gray-100/70 px-1 py-0.5"
+                  aria-label="Open profile"
+                >
+                  <span className="text-xs text-gray-600 font-medium">{displayName}</span>
+                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">{displayInitials}</div>
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* Note Content */}
-              <div className="flex-1 flex flex-col overflow-y-auto px-6 py-5">
-                <h2 className="text-xl font-bold text-gray-800 mb-4">New Note</h2>
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5">
+                <h2 className="text-xl font-bold text-gray-800 mb-4">{screenTitle}</h2>
 
                 {/* Note Card */}
-                <div className={cn("rounded-2xl border flex-1 flex flex-col overflow-hidden", currentBg?.bg, currentBg?.border)}>
+                <div
+                  className={cn(
+                    "flex flex-col overflow-hidden rounded-2xl border min-h-0",
+                    isVoiceKind || isImageKind ? "max-h-none shrink-0" : "min-h-[320px] flex-1",
+                    currentBg?.bg,
+                    currentBg?.border
+                  )}
+                >
                   {/* Title */}
                   <input
                     type="text"
                     value={title}
                     onChange={(e) => { setTitle(e.target.value); setIsSaved(false); }}
-                    placeholder="Untitled Note"
+                    placeholder={isFolderMode ? "Folder name" : "Untitled Note"}
                     className="w-full bg-transparent font-bold text-2xl text-gray-800 placeholder:text-gray-400 px-5 pt-5 pb-2 outline-none border-none"
                   />
 
+                  {isFolderMode && (
+                    <p className="px-5 pb-3 text-sm leading-relaxed text-gray-600">
+                      Folders help you organize notes. Set an optional PIN on the right, then click Create folder.
+                    </p>
+                  )}
+
+                  {(isVoiceKind || isImageKind) && (
+                    <div className="mx-5 mb-3 space-y-3 rounded-xl border border-gray-200 bg-white/70 p-4">
+                      {mediaError ? <p className="text-xs text-red-600">{mediaError}</p> : null}
+                      {isVoiceKind && (
+                        <>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Voice</p>
+                          <input ref={audioImportRef} type="file" accept="audio/*" className="hidden" onChange={onPickAudioFile} />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="rounded-lg text-xs"
+                              onClick={() => audioImportRef.current?.click()}
+                            >
+                              <Upload className="mr-1 h-3.5 w-3.5" /> Upload audio
+                            </Button>
+                            {recState === "idle" ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="rounded-lg bg-blue-700 px-3 text-xs text-white hover:bg-blue-800"
+                                onClick={startRecording}
+                              >
+                                <Mic className="mr-1 h-3.5 w-3.5" /> Record
+                              </Button>
+                            ) : null}
+                            {recState === "recording" ? (
+                              <>
+                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600">
+                                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-600" />
+                                  Recording…
+                                </span>
+                                <Button type="button" size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => stopRecording(false)}>
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="rounded-lg bg-red-600 text-xs text-white hover:bg-red-700"
+                                  onClick={() => stopRecording(true)}
+                                >
+                                  <Square className="mr-1 h-3 w-3 fill-current" /> Stop
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
+                          <p className="text-[11px] text-gray-400">
+                            Record in the app or upload a saved file. Size limits apply (see message above if a file is too large).
+                          </p>
+                        </>
+                      )}
+                      {isImageKind && (
+                        <>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Image</p>
+                          <input ref={imageImportRef} type="file" accept="image/*" className="hidden" onChange={onPickImageFile} />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="rounded-lg text-xs"
+                            onClick={() => imageImportRef.current?.click()}
+                          >
+                            <Upload className="mr-1 h-3.5 w-3.5" /> Choose / replace image
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {!isFolderMode && (isVoiceKind || isImageKind) && (
+                    <>
+                      <p className="mb-1.5 px-5 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Your note</p>
+                      <p className="mb-2 px-5 text-xs text-gray-500">
+                        Use the buttons above for your {isVoiceKind ? "recording" : "image"}. Type any text in the box below in the same place as your
+                        media.
+                      </p>
+                      <div
+                        ref={editorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onInput={handleInput}
+                        onKeyUp={updateActiveFormats}
+                        onMouseUp={updateActiveFormats}
+                        className="mx-5 mb-3 min-h-[min(200px,32vh)] max-h-[min(42vh,360px)] overflow-auto rounded-xl border border-gray-200/90 bg-white/90 px-3 py-3 text-sm leading-relaxed text-gray-700 outline-none empty:before:text-gray-400 empty:before:content-['Add_text_here._Upload_or_record_above_to_embed_media.']"
+                        style={{ fontFamily }}
+                        aria-label="Note and media"
+                      />
+                      <div className="px-5 pb-3 text-xs text-gray-400">Save or cancel from the buttons on the right.</div>
+                    </>
+                  )}
+                  {!isFolderMode && !isVoiceKind && !isImageKind && (
+                    <>
                   {/* ===== RICH TEXT TOOLBAR ===== */}
                   <div className="px-4 py-2 border-b border-black/10 bg-white/40 backdrop-blur-sm flex flex-wrap items-center gap-1">
                     {/* Heading style */}
@@ -287,18 +762,21 @@ export default function NewNoteEditor({ onClose, onSave }) {
                       { icon: Italic, cmd: "italic", label: "Italic" },
                       { icon: Underline, cmd: "underline", label: "Underline" },
                       { icon: Strikethrough, cmd: "strikeThrough", label: "Strikethrough" },
-                    ].map(({ icon: Icon, cmd, label }) => (
-                      <Toggle
-                        key={cmd}
-                        size="sm"
-                        pressed={activeFormats[cmd]}
-                        onPressedChange={() => execCommand(cmd)}
-                        className="h-7 w-7 p-0 rounded-lg data-[state=on]:bg-blue-100 data-[state=on]:text-blue-700"
-                        title={label}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                      </Toggle>
-                    ))}
+                    ].map((fmt) => {
+                      const FormatIcon = fmt.icon;
+                      return (
+                        <Toggle
+                          key={fmt.cmd}
+                          size="sm"
+                          pressed={activeFormats[fmt.cmd]}
+                          onPressedChange={() => execCommand(fmt.cmd)}
+                          className="h-7 w-7 p-0 rounded-lg data-[state=on]:bg-blue-100 data-[state=on]:text-blue-700"
+                          title={fmt.label}
+                        >
+                          <FormatIcon className="w-3.5 h-3.5" />
+                        </Toggle>
+                      );
+                    })}
 
                     <Separator orientation="vertical" className="h-5 mx-0.5" />
 
@@ -358,18 +836,21 @@ export default function NewNoteEditor({ onClose, onSave }) {
                       { icon: AlignCenter, cmd: "justifyCenter", label: "Center" },
                       { icon: AlignRight, cmd: "justifyRight", label: "Align right" },
                       { icon: AlignJustify, cmd: "justifyFull", label: "Justify" },
-                    ].map(({ icon: Icon, cmd, label }) => (
-                      <Toggle
-                        key={cmd}
-                        size="sm"
-                        pressed={activeFormats[cmd]}
-                        onPressedChange={() => execCommand(cmd)}
-                        className="h-7 w-7 p-0 rounded-lg data-[state=on]:bg-blue-100 data-[state=on]:text-blue-700"
-                        title={label}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                      </Toggle>
-                    ))}
+                    ].map((fmt) => {
+                      const FormatIcon = fmt.icon;
+                      return (
+                        <Toggle
+                          key={fmt.cmd}
+                          size="sm"
+                          pressed={activeFormats[fmt.cmd]}
+                          onPressedChange={() => execCommand(fmt.cmd)}
+                          className="h-7 w-7 p-0 rounded-lg data-[state=on]:bg-blue-100 data-[state=on]:text-blue-700"
+                          title={fmt.label}
+                        >
+                          <FormatIcon className="w-3.5 h-3.5" />
+                        </Toggle>
+                      );
+                    })}
 
                     <Separator orientation="vertical" className="h-5 mx-0.5" />
 
@@ -479,82 +960,158 @@ export default function NewNoteEditor({ onClose, onSave }) {
                     </div>
                     <span className="text-xs text-gray-400">Word count: {wordCount}</span>
                   </div>
+                    </>
+                  )}
+                  {isFolderMode && (
+                    <div className="flex flex-1 flex-col justify-center px-8 pb-12 text-center text-sm text-gray-500">
+                      <p>Use the panel on the right for an optional PIN, then click Create folder.</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Right panel */}
-              <div className="w-48 border-l border-gray-200 bg-white flex flex-col p-5 gap-5 shrink-0 overflow-y-auto">
-                {/* Color */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Color</p>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {COLORS.map(({ id, hex, border }) => (
-                      <button
-                        key={id}
-                        onClick={() => setActiveColor(id)}
-                        style={{ background: hex }}
-                        className={cn(
-                          "w-7 h-7 rounded-full border-2 transition-all",
-                          activeColor === id ? "ring-2 ring-offset-2 ring-blue-500 " + border : border
-                        )}
-                        title={id}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Tags */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tags</p>
-                  <div className="flex items-center gap-1 border border-gray-200 rounded-xl px-3 h-8 bg-gray-50">
-                    <input placeholder="Tags..." className="flex-1 text-xs bg-transparent outline-none text-gray-600 placeholder:text-gray-400" />
-                  </div>
-                </div>
-
-                {/* Date & Time */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Date & Time</p>
-                  <div className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 bg-gray-50">
-                    <span className="text-xs text-gray-600 flex-1">
-                      {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} • {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Toggles */}
-                <div className="flex flex-col gap-3">
-                  {[{ icon: Lock, label: "Lock Note" }, { icon: Pin, label: "Pin Note" }].map(({ icon: Icon, label }) => (
-                    <div key={label} className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Icon className="w-3.5 h-3.5 text-gray-400" />
-                        <span className="text-xs text-gray-600">{label}</span>
+              {/* Right panel: scroll settings above; actions always visible */}
+              <div className="flex min-h-0 w-52 min-w-[12rem] shrink-0 flex-col border-l border-gray-200 bg-white">
+                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+                {!isFolderMode && (
+                  <>
+                    {/* Color */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Color</p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {COLORS.map(({ id, hex, border }) => (
+                          <button
+                            key={id}
+                            onClick={() => setActiveColor(id)}
+                            style={{ background: hex }}
+                            className={cn(
+                              "w-7 h-7 rounded-full border-2 transition-all",
+                              activeColor === id ? "ring-2 ring-offset-2 ring-blue-500 " + border : border
+                            )}
+                            title={id}
+                          />
+                        ))}
                       </div>
-                      <button className="w-9 h-5 bg-gray-200 rounded-full relative transition-colors hover:bg-gray-300">
-                        <span className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" />
-                      </button>
                     </div>
-                  ))}
+
+                    {/* Tags */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tags</p>
+                      <div className="flex items-center gap-1 border border-gray-200 rounded-xl px-3 h-8 bg-gray-50">
+                        <input placeholder="Tags..." className="flex-1 text-xs bg-transparent outline-none text-gray-600 placeholder:text-gray-400" />
+                      </div>
+                    </div>
+
+                    {/* Reminder */}
+                    <div>
+                      <p className="mb-2 text-xs font-semibold tracking-wider text-gray-500 uppercase">Reminder</p>
+                      <Input
+                        type="datetime-local"
+                        value={reminderValue}
+                        onChange={(e) => setReminderValue(e.target.value)}
+                        className="h-8 rounded-lg border-gray-200 bg-gray-50 text-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-1 h-7 w-full text-xs text-muted-foreground"
+                        onClick={() => setReminderValue("")}
+                      >
+                        Clear reminder
+                      </Button>
+                      <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-700">Desktop alerts</span>
+                          <Switch
+                            checked={desktopAlertsEnabled}
+                            onCheckedChange={(checked) => onToggleDesktopAlerts?.(checked)}
+                            disabled={!canToggleDesktopAlerts}
+                            size="sm"
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-gray-500">{desktopAlertsStatusText}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5 text-gray-400" />
+                      <span className="text-xs text-gray-700">{isFolderMode ? "Lock folder" : "Lock note"}</span>
+                    </div>
+                    <Switch
+                      checked={locked}
+                      onCheckedChange={(v) => {
+                        setLocked(v);
+                        if (!v) setLockPin("");
+                      }}
+                      size="sm"
+                    />
+                  </div>
+                  {locked && (
+                    <div>
+                      <Label className="text-[10px] text-gray-500">PIN (min 4)</Label>
+                      <Input
+                        type="password"
+                        className="mt-1 h-8 rounded-lg border-gray-200 bg-white text-xs"
+                        value={lockPin}
+                        onChange={(e) => setLockPin(e.target.value)}
+                        placeholder="••••"
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  )}
+                  {!isFolderMode ? (
+                    <div className="flex items-center justify-between gap-2 border-t border-gray-200 pt-2">
+                      <div className="flex items-center gap-1.5">
+                        <Pin className="h-3.5 w-3.5 text-gray-400" />
+                        <span className="text-xs text-gray-700">Pin to top</span>
+                      </div>
+                      <Switch checked={pinned} onCheckedChange={setPinned} size="sm" />
+                    </div>
+                  ) : null}
                 </div>
 
-                <div className="flex flex-col gap-2 pt-1 border-t border-gray-100">
-                  <button className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 py-1">
-                    <Archive className="w-3.5 h-3.5" /> Archive Note
-                  </button>
-                  <button className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 py-1">
-                    <Trash2 className="w-3.5 h-3.5" /> Delete Note
-                  </button>
+                <div className="flex flex-col gap-2 border-t border-gray-100 pt-1">
+                  {noteId != null && onArchiveNote && !isFolderMode && (
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 py-1 text-xs text-gray-500 hover:text-gray-800"
+                      onClick={() => {
+                        if (window.confirm("Archive this note? You can restore it from Archive in the sidebar.")) {
+                          onArchiveNote(noteId);
+                          onClose();
+                        }
+                      }}
+                    >
+                      <Archive className="h-3.5 w-3.5" /> Archive note
+                    </button>
+                  )}
+                  {noteId != null && onDeleteNote && !isFolderMode && (
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 py-1 text-xs text-red-500 hover:text-red-700"
+                      onClick={handleDelete}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Move to trash
+                    </button>
+                  )}
+                </div>
                 </div>
 
-                {/* Actions */}
-                <div className="mt-auto flex flex-col gap-2 pt-3 border-t border-gray-100">
-                  <Button variant="outline" onClick={onClose} className="w-full rounded-xl h-8 text-xs">
+                <div className="shrink-0 space-y-2 border-t border-gray-200 bg-white p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
+                  <Button variant="outline" onClick={onClose} className="h-9 w-full rounded-xl text-xs">
                     Cancel
                   </Button>
                   <Button
-                    onClick={handleSave}
-                    className="w-full rounded-xl h-8 text-xs bg-blue-700 hover:bg-blue-800 text-white font-semibold"
+                    type="button"
+                    onClick={handlePrimaryAction}
+                    className="h-9 w-full rounded-xl bg-blue-700 text-xs font-semibold text-white hover:bg-blue-800"
                   >
-                    Save Note
+                    {primarySaveLabel}
                   </Button>
                 </div>
               </div>

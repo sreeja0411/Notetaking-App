@@ -1,127 +1,96 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { FileText, Folder, Mic, Image, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-const NOTE_TYPES = [
-  {
-    id: "note",
+const TYPE_CARD = {
+  note: {
     icon: FileText,
     label: "New note",
     description: "Start a new text-based entry",
-    color: "border-blue-500 bg-blue-50",
-    iconBg: "text-blue-600",
-    selected: true,
+    iconClass: "text-blue-600",
+    labelClass: "text-blue-700",
+    inactive: "border-transparent bg-blue-50 hover:border-gray-200",
+    active: "border-blue-500 bg-blue-50",
   },
-  {
-    id: "folder",
+  folder: {
     icon: Folder,
     label: "New folder",
-    description: "Organize your notes better",
-    color: "bg-rose-50 border-transparent",
-    iconBg: "text-rose-500",
-    selected: false,
+    description: "Organize your notes better.",
+    iconClass: "text-rose-500",
+    labelClass: "text-rose-600",
+    inactive: "border-transparent bg-rose-50 hover:border-gray-200",
+    active: "border-rose-400 bg-rose-50",
   },
-  {
-    id: "voice",
+  voice: {
     icon: Mic,
     label: "Voice note",
-    description: "Record your thoughts aloud",
-    color: "bg-yellow-50 border-transparent",
-    iconBg: "text-yellow-500",
-    selected: false,
+    description: "Record your thoughts aloud.",
+    iconClass: "text-yellow-500",
+    labelClass: "text-yellow-700",
+    inactive: "border-transparent bg-yellow-50 hover:border-gray-200",
+    active: "border-yellow-400 bg-yellow-50",
   },
-  {
-    id: "image",
+  image: {
     icon: Image,
     label: "Image note",
-    description: "Snap a photo for a note",
-    color: "bg-gray-100 border-transparent",
-    iconBg: "text-gray-500",
-    selected: false,
+    description: "Snap a photo for a note.",
+    iconClass: "text-gray-500",
+    labelClass: "text-gray-700",
+    inactive: "border-transparent bg-gray-100 hover:border-gray-200",
+    active: "border-gray-400 bg-gray-100",
   },
-];
+};
 
-const COLORS = [
-  { id: "white", bg: "bg-white border-gray-300", ring: "ring-blue-500" },
-  { id: "pink", bg: "bg-rose-200 border-rose-300", ring: "ring-rose-400" },
-  { id: "blue", bg: "bg-blue-200 border-blue-300", ring: "ring-blue-400" },
-  { id: "gray", bg: "bg-gray-200 border-gray-300", ring: "ring-gray-400" },
-];
+/**
+ * Step 1: pick what to create. Parent opens the full editor (second screen) for the chosen type.
+ */
+export default function CreateNoteModal({ onClose, onPickType }) {
+  /** Highlights a tile like the design (default: New note). */
+  const [activePreview, setActivePreview] = useState("note");
 
-export default function CreateNoteModal({ onClose, onCreateNote }) {
-  const [selected, setSelected] = useState("note");
-  const [title, setTitle] = useState("");
-  const [selectedColor, setSelectedColor] = useState("white");
+  const choose = (type) => {
+    onPickType(type);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 relative animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl">
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-gray-100 text-gray-400"
+          className="absolute top-4 right-4 rounded-full p-1.5 text-gray-400 hover:bg-gray-100"
         >
-          <X className="w-4 h-4" />
+          <X className="h-4 w-4" />
         </button>
 
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">Create something new</h2>
-        <p className="text-sm text-gray-400 mb-6">What would you like to add?</p>
+        <h2 className="mb-1 text-2xl font-bold text-gray-900">Create something new</h2>
+        <p className="mb-6 text-sm text-gray-400">What would you like to add? Choose one to continue in the editor.</p>
 
-        {/* Type Grid */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          {NOTE_TYPES.map(({ id, icon: Icon, label, description, color, iconBg }) => (
-            <button
-              key={id}
-              onClick={() => setSelected(id)}
-              className={`rounded-2xl p-4 text-left border-2 transition-all ${
-                selected === id ? color + " border-blue-500" : color.replace("border-blue-500", "") + " border-transparent hover:border-gray-200"
-              }`}
-            >
-              <Icon className={`w-6 h-6 mb-2 ${iconBg}`} />
-              <p className="font-semibold text-sm text-gray-800">{label}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{description}</p>
-            </button>
-          ))}
-        </div>
-
-        {/* Title Input */}
-        <div className="mb-5">
-          <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">
-            Note Title
-          </Label>
-          <Input
-            placeholder="Type your note title here..."
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="rounded-xl border-gray-200 bg-gray-50 text-sm h-10"
-          />
-        </div>
-
-        {/* Color Picker */}
-        <div className="flex items-center gap-3 mb-7">
-          <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Color</Label>
-          <div className="flex gap-2">
-            {COLORS.map(({ id, bg, ring }) => (
+        <div className="mb-6 grid grid-cols-2 gap-3">
+          {Object.entries(TYPE_CARD).map(([id, cfg]) => {
+            const TypeIcon = cfg.icon;
+            const isSel = activePreview === id;
+            return (
               <button
                 key={id}
-                onClick={() => setSelectedColor(id)}
-                className={`w-6 h-6 rounded-full border ${bg} transition-all ${selectedColor === id ? `ring-2 ring-offset-2 ${ring}` : ""}`}
-              />
-            ))}
-          </div>
+                type="button"
+                onMouseEnter={() => setActivePreview(id)}
+                onFocus={() => setActivePreview(id)}
+                onClick={() => choose(id)}
+                className={cn("rounded-2xl border-2 p-4 text-left transition-all", isSel ? cfg.active : cfg.inactive)}
+              >
+                <TypeIcon className={cn("mb-2 h-6 w-6", cfg.iconClass)} />
+                <p className={cn("text-sm font-semibold", isSel ? cfg.labelClass : "text-gray-800")}>{cfg.label}</p>
+                <p className="mt-0.5 text-xs text-gray-400">{cfg.description}</p>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-3">
+        <div className="flex justify-end">
           <Button variant="outline" onClick={onClose} className="rounded-xl px-5">
             Cancel
-          </Button>
-          <Button
-            onClick={() => onCreateNote({ type: selected, title, color: selectedColor })}
-            className="rounded-xl px-5 bg-blue-700 hover:bg-blue-800 text-white font-semibold"
-          >
-            Create note
           </Button>
         </div>
       </div>
