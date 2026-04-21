@@ -258,7 +258,7 @@ export default function NewNoteEditor({
   const setEditorImageFromDataUrl = useCallback((src) => {
     setMediaError("");
     const safe = String(src).replace(/"/g, "&quot;");
-    const snippet = `<p><img src="${safe}" alt="attachment" data-attachment="image" title="Click to remove" style="max-width:100%;height:auto;border-radius:8px;cursor:pointer" /></p>`;
+    const snippet = `<p><span class="att-wrap" data-attachment="image" style="position:relative;display:inline-block;max-width:100%"><img src="${safe}" alt="attachment" data-attachment="image" style="max-width:100%;height:auto;border-radius:8px" /><button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;border:0;border-radius:9999px;width:22px;height:22px;font-size:12px;cursor:pointer;line-height:1;z-index:10;pointer-events:auto;user-select:none">×</button></span></p>`;
     const el = editorRef.current;
     if (!el) return;
     if (/<img/i.test(el.innerHTML)) {
@@ -308,12 +308,12 @@ export default function NewNoteEditor({
     const reader = new FileReader();
     reader.onload = () => {
       const safe = String(reader.result).replace(/"/g, "&quot;");
-      appendOrReplaceMedia(`<p><span class="att-wrap" data-attachment="video" style="position:relative;display:inline-block;max-width:100%"><video controls preload="metadata" style="width:100%;max-width:100%;border-radius:8px" src="${safe}"></video><button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;border:0;border-radius:9999px;width:22px;height:22px;font-size:12px;cursor:pointer;line-height:1">×</button></span></p>`);
+      appendOrReplaceMedia(`<p><span class="att-wrap" data-attachment="video" style="position:relative;display:inline-block;max-width:100%"><video controls preload="metadata" style="width:100%;max-width:100%;border-radius:8px" src="${safe}"></video><button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;border:0;border-radius:9999px;width:22px;height:22px;font-size:12px;cursor:pointer;line-height:1;z-index:10;pointer-events:auto;user-select:none">×</button></span></p>`);
     };
     reader.readAsDataURL(file);
   };
 
-  // Insert any non-media file as a download link with file name + size.
+  // Insert any non-media file as a download link with file name + size, or display content for images/text.
   const onPickGenericFile = (e) => {
     const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
     setMediaError("");
@@ -322,15 +322,36 @@ export default function NewNoteEditor({
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
-      const safe = String(reader.result).replace(/"/g, "&quot;");
-      const name = String(file.name || "attachment").replace(/[<>"]/g, "");
-      const sizeLabel = formatBytesHuman(file.size);
-      appendOrReplaceMedia(
-        `<p><a href="${safe}" download="${name}" data-attachment="file" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#1f2937;text-decoration:none;font-size:12px;cursor:pointer">📎 ${name} <span style="color:#6b7280">(${sizeLabel})</span></a> <button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="margin-left:4px;background:#fee2e2;color:#b91c1c;border:0;border-radius:9999px;width:20px;height:20px;font-size:11px;cursor:pointer;line-height:1">×</button></p>`
-      );
-    };
-    reader.readAsDataURL(file);
+    if (file.type.startsWith("image/")) {
+      reader.onload = () => {
+        const safe = String(reader.result).replace(/"/g, "&quot;");
+        appendOrReplaceMedia(`<p><span class="att-wrap" data-attachment="image" style="position:relative;display:inline-block;max-width:100%"><img src="${safe}" alt="attachment" data-attachment="image" style="max-width:100%;height:auto;border-radius:8px" /><button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;border:0;border-radius:9999px;width:22px;height:22px;font-size:12px;cursor:pointer;line-height:1;z-index:10;pointer-events:auto;user-select:none">×</button></span></p>`);
+      };
+      reader.readAsDataURL(file);
+    } else if (file.type.startsWith("text/")) {
+      reader.onload = () => {
+        const text = String(reader.result);
+        const escaped = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        appendOrReplaceMedia(`<p><span class="att-wrap" data-attachment="text" style="position:relative;display:inline-block;max-width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#f9fafb"><pre style="margin:0;white-space:pre-wrap;font-family:monospace;font-size:12px">${escaped}</pre><button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;border:0;border-radius:9999px;width:22px;height:22px;font-size:12px;cursor:pointer;line-height:1;z-index:10;pointer-events:auto;user-select:none">×</button></span></p>`);
+      };
+      reader.readAsText(file);
+    } else {
+      reader.onload = () => {
+        const safe = String(reader.result).replace(/"/g, "&quot;");
+        const name = String(file.name || "attachment").replace(/[<>"]/g, "");
+        const sizeLabel = formatBytesHuman(file.size);
+        if (file.type === "application/pdf") {
+          appendOrReplaceMedia(
+            `<p><span class="att-wrap" data-attachment="pdf" style="position:relative;display:inline-block;max-width:100%"><embed src="${safe}" type="application/pdf" style="width:100%;height:400px;border:1px solid #e5e7eb;border-radius:8px" /><button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;border:0;border-radius:9999px;width:22px;height:22px;font-size:12px;cursor:pointer;line-height:1;z-index:10;pointer-events:auto;user-select:none">×</button></span></p>`
+          );
+        } else {
+          appendOrReplaceMedia(
+            `<p><span class="att-wrap" data-attachment="file" style="position:relative;display:inline-block;max-width:100%"><a href="${safe}" download="${name}" data-attachment="file" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#1f2937;text-decoration:none;font-size:12px;cursor:pointer">📎 ${name} <span style="color:#6b7280">(${sizeLabel})</span></a><button type="button" data-action="remove-attachment" contenteditable="false" title="Remove" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;border:0;border-radius:9999px;width:22px;height:22px;font-size:12px;cursor:pointer;line-height:1;z-index:10;pointer-events:auto;user-select:none">×</button></span></p>`
+          );
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const stopRecording = (save) => {
@@ -486,10 +507,13 @@ export default function NewNoteEditor({
     if (target.tagName === "IMG" && target.getAttribute("data-attachment") === "image") {
       e.preventDefault();
       if (window.confirm("Remove this image from the note?")) {
-        const para = target.closest("p") || target.parentElement;
-        if (para && para.parentNode) {
-          para.parentNode.removeChild(para);
-          handleInput();
+        const wrap = target.closest('.att-wrap');
+        if (wrap) {
+          const para = wrap.closest("p");
+          if (para && para.parentNode) {
+            para.parentNode.removeChild(para);
+            handleInput();
+          }
         }
       }
       return;
@@ -788,7 +812,8 @@ export default function NewNoteEditor({
                         onInput={handleInput}
                         onKeyUp={updateActiveFormats}
                         onMouseUp={updateActiveFormats}
-                        className="flex-1 min-h-40 px-5 py-3 outline-none text-sm text-gray-700 leading-relaxed empty:before:content-['Start_writing_your_note...'] empty:before:text-gray-400"
+                        onClick={handleEditorClick}
+                        className="flex-1 min-h-40 px-5 py-3 overflow-y-auto outline-none text-sm text-gray-700 leading-relaxed empty:before:content-['Start_writing_your_note...'] empty:before:text-gray-400"
                         style={{ fontFamily }}
                       />
 
