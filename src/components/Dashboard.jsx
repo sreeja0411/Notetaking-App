@@ -968,12 +968,12 @@ const addFolder = useCallback((name, opts = {}) => {
     return notes.filter((n) => !n.archived && noteSearchText(n).includes(searchLower));
   }, [notes, searchLower]);
 
-  const headerTitle =
-    activeTag ? `#${activeTag.toUpperCase()}` :
-    sidebarView === "workspace" ? "NOTIFY"
-    : sidebarView === "locks" ? "PRIVATE NOTES"
-    : sidebarView === "archive" ? "ARCHIVE"
-    : "TRASH";
+ const headerTitle =
+  activeTag ? `#${activeTag.toUpperCase()}` :
+  sidebarView === "workspace" ? "NOTIFY"
+  : sidebarView === "locks" ? "PRIVATE NOTES"
+  : sidebarView === "archive" ? "ARCHIVE"
+  : "TRASH";
   const profileInitials = initialsFromName(profileName);
   const alertsStatusText =
     notificationPermission === "unsupported" ? "Desktop alerts are not supported in this browser."
@@ -1030,11 +1030,6 @@ const addFolder = useCallback((name, opts = {}) => {
           >
             <Plus className="h-3.5 w-3.5" /> Add New
           </Button>
-          <div className="flex gap-1.5 px-2 py-1" aria-hidden>
-            <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
-            <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
-            <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
-          </div>
           <nav className="mt-1 flex flex-col gap-1">
             {SIDEBAR_LINKS.map((link) => {
               const NavIcon = link.icon;
@@ -1045,13 +1040,13 @@ const addFolder = useCallback((name, opts = {}) => {
                   variant={sidebarView === link.id && !activeTag ? "secondary" : "ghost"}
                   size="sm"
                   className={cn(
-                    "h-8 w-full justify-start gap-2 rounded-lg px-2 text-xs transition-colors",
+                    "h-8 w-full justify-start gap-2 rounded-lg px-2 text-sm transition-colors",
                     sidebarView === link.id && !activeTag && "border border-border bg-background font-medium shadow-sm"
                   )}
                   onClick={() => { setSidebarView(link.id); setActiveTag(null); }}
                 >
                   <NavIcon className="h-3.5 w-3.5" />
-                  <span className="flex-1 text-left">{link.label}</span>
+                  <span className="flex-1 text-left font-large">{link.label}</span>
                 </Button>
               );
             })}
@@ -1125,7 +1120,18 @@ const addFolder = useCallback((name, opts = {}) => {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-white/70 backdrop-blur px-4 py-3 sm:px-6">
-            <h1 className="text-base font-bold tracking-tight sm:text-lg truncate">{headerTitle}</h1>
+            <h1
+  className={`
+    truncate
+    ${
+      headerTitle === "NOTIFY"
+        ? "text-3xl font-semibold tracking-tight text-gray-900 font-[Inter]"
+        : "text-xl font-normal text-gray-700"
+    }
+  `}
+>
+  {headerTitle}
+</h1>
             <div className="mx-2 hidden min-w-0 flex-1 md:flex">
               <div className="relative mx-auto w-full max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
