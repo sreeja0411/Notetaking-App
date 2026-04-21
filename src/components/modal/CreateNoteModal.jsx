@@ -11,7 +11,7 @@ const TYPE_CARD = {
     iconClass: "text-blue-600",
     labelClass: "text-blue-700",
     inactive: "border-transparent bg-blue-50 hover:border-blue-200",
-    active: "border-blue-500 bg-blue-50 shadow-sm",
+    active:   "border-blue-500 bg-blue-50 shadow-sm",
   },
   folder: {
     icon: Folder,
@@ -20,7 +20,7 @@ const TYPE_CARD = {
     iconClass: "text-rose-500",
     labelClass: "text-rose-600",
     inactive: "border-transparent bg-rose-50 hover:border-rose-200",
-    active: "border-rose-400 bg-rose-50 shadow-sm",
+    active:   "border-rose-400 bg-rose-50 shadow-sm",
   },
   voice: {
     icon: Mic,
@@ -29,19 +29,15 @@ const TYPE_CARD = {
     iconClass: "text-yellow-500",
     labelClass: "text-yellow-700",
     inactive: "border-transparent bg-yellow-50 hover:border-yellow-200",
-    active: "border-yellow-400 bg-yellow-50 shadow-sm",
+    active:   "border-yellow-400 bg-yellow-50 shadow-sm",
   },
 };
 
 /**
- * Step 1: pick what to create. Parent opens the full editor (second screen) for the chosen type.
+ * Step 1: pick what to create. Parent opens the full editor for the chosen type.
  */
 export default function CreateNoteModal({ onClose, onPickType }) {
   const [activePreview, setActivePreview] = useState("note");
-
-  const choose = (type) => {
-    onPickType(type);
-  };
 
   return (
     <div
@@ -76,7 +72,7 @@ export default function CreateNoteModal({ onClose, onPickType }) {
                 type="button"
                 onMouseEnter={() => setActivePreview(id)}
                 onFocus={() => setActivePreview(id)}
-                onClick={() => choose(id)}
+                onClick={() => onPickType(id)}
                 className={cn(
                   "rounded-2xl border-2 p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md",
                   isSel ? cfg.active : cfg.inactive
