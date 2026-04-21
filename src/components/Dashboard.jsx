@@ -498,10 +498,19 @@ export default function Dashboard() {
     tags: [],
   });
 
+const FOLDER_COLOR_OPTIONS = [
+  { bg: "bg-yellow-100", icon: "text-yellow-700" },
+  { bg: "bg-red-100", icon: "text-red-700" },
+  { bg: "bg-blue-100", icon: "text-blue-700" },
+  { bg: "bg-green-100", icon: "text-green-700" },
+  { bg: "bg-pink-100", icon: "text-pink-700" },
+];
+  
   const importBackupRef = useRef(null);
 
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderColor, setNewFolderColor] = useState(FOLDER_COLOR_OPTIONS[0]);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameKind, setRenameKind] = useState("note");
@@ -522,6 +531,7 @@ export default function Dashboard() {
       return false;
     }
   });
+
 
   function openEditor(partial) {
     setEditorDefaults({
@@ -669,37 +679,33 @@ export default function Dashboard() {
     setRenameOpen(false);
   };
 
-  const addFolder = useCallback((name, opts = {}) => {
-    const trimmed = (name || "").trim() || "New folder";
-    const parentFolderId = opts.parentFolderId !== undefined ? opts.parentFolderId : null;
-    setFolders((prev) => {
-      const palette = FOLDER_PALETTES[prev.length % FOLDER_PALETTES.length];
-      return [
-        ...prev,
-        {
-          id: Date.now(),
-          name: trimmed,
-          files: 0,
-          updatedAt: new Date(),
-          parentFolderId,
-          archived: false,
-          ...palette,
-        },
-      ];
-    });
-  }, []);
+const addFolder = useCallback((name, opts = {}) => {
+  const trimmed = (name || "").trim() || "New folder";
+  const parentFolderId = opts.parentFolderId ?? null;
+
+  setFolders((prev) => [
+    ...prev,
+    {
+      id: Date.now(),
+      name: trimmed,
+      files: 0,
+      updatedAt: new Date(),
+      parentFolderId,
+      archived: false,
+      color: opts.color?.bg || "bg-yellow-100",        // ✅ use selected color
+      iconColor: opts.color?.icon || "text-yellow-700" // ✅ icon color
+    },
+  ]);
+}, []);
 
   const newTrashId = () => `tr-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
   const moveNoteToTrash = (note) => {
-    setNotes((prev) => prev.filter((n) => n.id !== note.id));
-    setTrash((t) => [...t, { id: newTrashId(), kind: "note", item: note, deletedAt: new Date() }]);
-    // Always return to home after moving to trash so we don't stay inside a (possibly empty) folder view.
-    setBrowseFolderId(null);
-    setSidebarView("workspace");
-    setActiveTag(null);
-    toast.success("Moved to trash");
-  };
+  setNotes((prev) => prev.filter((n) => n.id !== note.id));
+  setTrash((t) => [...t, { id: newTrashId(), kind: "note", item: note, deletedAt: new Date() }]);
+
+  toast.success("Moved to trash");
+};
 
   const moveFolderToTrash = (folder) => {
     const parent = folder.parentFolderId ?? null;
@@ -710,10 +716,6 @@ export default function Dashboard() {
     );
     setNotes((prev) => prev.map((n) => (n.folderId === folder.id ? { ...n, folderId: parent } : n)));
     setTrash((t) => [...t, { id: newTrashId(), kind: "folder", item: folder, deletedAt: new Date() }]);
-    // Always return to home after moving a folder to trash.
-    setBrowseFolderId(null);
-    setSidebarView("workspace");
-    setActiveTag(null);
     toast.success("Folder moved to trash");
   };
 
@@ -1411,6 +1413,21 @@ export default function Dashboard() {
                       <h2 className="text-base font-bold text-foreground">Recent Folders</h2>
                     </div>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                      {/* NEW FOLDER FIRST */}
+<button
+  type="button"
+  className="flex min-h-[110px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-transparent p-4 text-muted-foreground transition-all hover:border-blue-300 hover:bg-blue-50/30 hover:text-foreground"
+  onClick={() => {
+    setNewFolderName("");
+    setNewFolderColor(FOLDER_COLOR_OPTIONS[0]);
+    setNewFolderOpen(true);
+  }}
+>
+  <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40">
+    <Plus className="h-3.5 w-3.5" />
+  </div>
+  <p className="text-xs">New folder</p>
+</button>
                       {filteredFolders.map((folder) => (
                         <div
                           key={folder.id}
@@ -1452,47 +1469,49 @@ export default function Dashboard() {
                           </p>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="flex min-h-[110px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-transparent p-4 text-muted-foreground transition-all hover:border-blue-300 hover:bg-blue-50/30 hover:text-foreground"
-                        onClick={() => { setNewFolderName(""); setNewFolderOpen(true); }}
-                      >
-                        <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40">
-                          <Plus className="h-3.5 w-3.5" />
-                        </div>
-                        <p className="text-xs">New folder</p>
-                      </button>
+                      
                     </div>
                   </section>
                 ) : null}
 
                 <section>
                   <h2 className="mb-3 text-base font-bold text-foreground">{activeTag ? `Notes tagged #${activeTag}` : "My Notes"}</h2>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {filteredNotes.map((note) => (
-                      <WorkspaceNoteCard
-                        key={note.id}
-                        note={note}
-                        variant="text"
-                        onOpen={requestOpenNote}
-                        onRename={() => openRename("note", note.id, note.title)}
-                        onTrash={moveNoteToTrash}
-                      />
-                    ))}
-                    <button
-                      type="button"
-                      className="flex min-h-[150px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-all hover:border-blue-300 hover:bg-blue-50/30 hover:text-foreground"
-                      onClick={() => openCreateFlow("note")}
-                    >
-                      <FilePlus className="h-7 w-7 text-muted-foreground/60" />
-                      <p className="text-xs">New Note</p>
-                    </button>
-                  </div>
+<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+
+  {/* ✅ NEW NOTE FIRST */}
+  <button
+    type="button"
+    className="flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-all hover:border-blue-300 hover:bg-blue-50/30 hover:text-foreground"
+    onClick={() => openCreateFlow("note")}
+  >
+    <FilePlus className="h-6 w-6 text-muted-foreground/60" />
+    <p className="text-xs">New Note</p>
+  </button>
+
+  {filteredNotes.map((note) => (
+    <WorkspaceNoteCard
+      key={note.id}
+      note={note}
+      variant="text"
+      onOpen={requestOpenNote}
+      onRename={() => openRename("note", note.id, note.title)}
+      onTrash={moveNoteToTrash}
+    />
+  ))}
+</div>
                 </section>
 
                 <section className="mt-8">
                   <h2 className="mb-3 text-base font-bold text-foreground">Voice notes</h2>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    <button
+  type="button"
+  className="flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-all hover:border-yellow-300 hover:bg-yellow-50/30 hover:text-foreground"
+  onClick={() => openCreateFlow("voice")}
+>
+  <Mic className="h-6 w-6 text-muted-foreground/60" />
+  <p className="text-xs">New voice note</p>
+</button>
                     {filteredVoiceNotes.map((note) => (
                       <WorkspaceNoteCard
                         key={note.id}
@@ -1503,14 +1522,7 @@ export default function Dashboard() {
                         onTrash={moveNoteToTrash}
                       />
                     ))}
-                    <button
-                      type="button"
-                      className="flex min-h-[150px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-all hover:border-yellow-300 hover:bg-yellow-50/30 hover:text-foreground"
-                      onClick={() => openCreateFlow("voice")}
-                    >
-                      <Mic className="h-7 w-7 text-muted-foreground/60" />
-                      <p className="text-xs">New voice note</p>
-                    </button>
+                    
                   </div>
                 </section>
 
@@ -1714,14 +1726,44 @@ export default function Dashboard() {
             <DialogDescription>Choose a name for your folder. You can rename it later.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="folder-name" className="text-xs">Folder name</Label>
-              <Input id="folder-name" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="e.g. Lecture slides" className="rounded-xl" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addFolder(newFolderName, { parentFolderId: browseFolderId }); setNewFolderOpen(false); } }} />
-            </div>
-          </div>
+
+  {/* Folder name */}
+  <div className="space-y-2">
+    <Label htmlFor="folder-name" className="text-xs">Folder name</Label>
+    <Input
+      id="folder-name"
+      value={newFolderName}
+      onChange={(e) => setNewFolderName(e.target.value)}
+      placeholder="e.g. Lecture slides"
+      className="rounded-xl"
+    />
+  </div>
+
+  {/* ✅ ADD THIS HERE (color picker) */}
+  <div className="space-y-2">
+    <Label className="text-xs">Color</Label>
+
+    <div className="flex gap-3">
+      {FOLDER_COLOR_OPTIONS.map((c, i) => (
+        <div
+          key={i}
+          onClick={() => setNewFolderColor(c)}
+          className={cn(
+            "h-8 w-8 rounded-full cursor-pointer border-2",
+            c.bg,
+            newFolderColor.bg === c.bg
+              ? "border-blue-500"
+              : "border-gray-300"
+          )}
+        />
+      ))}
+    </div>
+  </div>
+
+</div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewFolderOpen(false)}>Cancel</Button>
-            <Button onClick={() => { addFolder(newFolderName, { parentFolderId: browseFolderId }); setNewFolderOpen(false); }}>Create folder</Button>
+            <Button onClick={() => { addFolder(newFolderName, { parentFolderId: browseFolderId,color: newFolderColor }); setNewFolderOpen(false); }}>Create folder</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

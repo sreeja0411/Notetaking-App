@@ -928,7 +928,7 @@ export default function NewNoteEditor({
 
                 <div className="shrink-0 space-y-2 border-t border-gray-200 bg-white p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
                   <Button variant="outline" onClick={handleBackOrClose} className="h-9 w-full rounded-xl text-xs">
-                    {isFolderMode ? "Cancel" : "Back (auto-save)"}
+                    {isFolderMode ? "Cancel" : "Back"}
                   </Button>
                   <Button
                     type="button"
