@@ -183,6 +183,8 @@ export default function Dashboard() {
 
   /* ─── lock settings ─── */
   const [lockSettingsOpen,    setLockSettingsOpen]    = useState(false);
+  const [lockSettingsMode,    setLockSettingsMode]    = useState("verify"); // "verify", "new", or "confirm"
+  const [lockCurrentPin,      setLockCurrentPin]      = useState("");
   const [lockDraftPin,        setLockDraftPin]        = useState("");
   const [lockDraftConfirm,    setLockDraftConfirm]    = useState("");
   const [lockSettingsErr,     setLockSettingsErr]     = useState("");
@@ -371,12 +373,25 @@ export default function Dashboard() {
   /* ─── lock settings ─── */
   const saveGlobalLockSettings = () => {
     setLockSettingsErr("");
+    
+    // If lock is already enabled, verify current PIN first
+    if (globalLock.enabled && lockSettingsMode === "verify") {
+      if (!lockCurrentPin) { setLockSettingsErr("Enter your current PIN."); return; }
+      if (lockCurrentPin !== globalLock.pin) { setLockSettingsErr("Incorrect PIN. Try again."); return; }
+      setLockSettingsMode("new");
+      setLockCurrentPin("");
+      setLockSettingsErr("");
+      return;
+    }
+    
+    // Setting new PIN
     if (lockDraftPin.length < 4) { setLockSettingsErr("PIN must be at least 4 characters."); return; }
     if (lockDraftPin !== lockDraftConfirm) { setLockSettingsErr("PINs do not match."); return; }
     setGlobalLock({ enabled: true, pin: lockDraftPin });
     setUnlockedSession(true);
     setLockSettingsOpen(false);
-    toast.success("Global lock enabled");
+    setLockSettingsMode("verify");
+    toast.success("Global lock " + (globalLock.enabled ? "updated" : "enabled"));
   };
 
   const disableGlobalLock = () => {
@@ -390,8 +405,15 @@ export default function Dashboard() {
     if (action === "profile")  { setProfileNameDraft(profileName); setProfileDialogOpen(true); return; }
     if (action === "about")    { setAboutDialogOpen(true); return; }
     if (action === "settings") { setWorkspaceSettingsOpen(true); return; }
-    if (action === "lock")     { setLockDraftPin(""); setLockDraftConfirm(""); setLockSettingsErr(""); setLockSettingsOpen(true); return; }
-    if (action === "lockNow")  { setUnlockedSession(false); toast("Workspace re-locked"); }
+    if (action === "lock")     { 
+      setLockCurrentPin(""); 
+      setLockDraftPin(""); 
+      setLockDraftConfirm(""); 
+      setLockSettingsErr("");
+      setLockSettingsMode(globalLock.enabled ? "verify" : "new");
+      setLockSettingsOpen(true); 
+      return; 
+    }
   };
 
   /* ─── computed data ─── */
@@ -579,11 +601,6 @@ export default function Dashboard() {
                 <DropdownMenuItem onSelect={() => handleAccountMenuAction("lock")}>
                   <KeyRound className="mr-2 h-3.5 w-3.5" /> Lock settings
                 </DropdownMenuItem>
-                {globalLock.enabled && (
-                  <DropdownMenuItem onSelect={() => handleAccountMenuAction("lockNow")}>
-                    <Lock className="mr-2 h-3.5 w-3.5" /> Lock now
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => handleAccountMenuAction("about")}>About</DropdownMenuItem>
               </DropdownMenuContent>
@@ -704,7 +721,7 @@ export default function Dashboard() {
                           variant={note.noteKind === "voice" ? "voice" : "text"}
                           onOpen={requestOpenNote}
                           onRename={() => openRename("note", note.id, note.title)}
-                          onTrash={moveNoteToTrash}
+                          onTrash={(note) => { moveNoteToTrash(note); setBrowseFolderId(null); setSidebarView("workspace"); setActiveTag(null); }}
                         />
                       ))}
                     </div>
@@ -930,7 +947,7 @@ export default function Dashboard() {
                       <WorkspaceNoteCard key={note.id} note={note} variant="text"
                         onOpen={requestOpenNote}
                         onRename={() => openRename("note", note.id, note.title)}
-                        onTrash={moveNoteToTrash}
+                        onTrash={(note) => { moveNoteToTrash(note); setBrowseFolderId(null); setSidebarView("workspace"); setActiveTag(null); }}
                       />
                     ))}
                   </div>
@@ -1118,33 +1135,62 @@ export default function Dashboard() {
       </Dialog>
 
       {/* Global lock settings */}
-      <Dialog open={lockSettingsOpen} onOpenChange={setLockSettingsOpen}>
+      <Dialog open={lockSettingsOpen} onOpenChange={(open) => {
+        if (!open) {
+          setLockSettingsOpen(false);
+          setLockSettingsMode("verify");
+          setLockCurrentPin("");
+          setLockDraftPin("");
+          setLockDraftConfirm("");
+          setLockSettingsErr("");
+        } else {
+          setLockSettingsOpen(true);
+        }
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Global lock settings</DialogTitle>
-            <DialogDescription>Set one PIN for all private notes.</DialogDescription>
+            <DialogDescription>{lockSettingsMode === "verify" ? "Verify your current PIN to change it." : "Set one PIN for all private notes."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div>
-              <Label className="text-xs">New PIN (min 4)</Label>
-              <Input type="password" value={lockDraftPin} onChange={(e) => setLockDraftPin(e.target.value)}
-                className="mt-1 rounded-xl" placeholder="••••" />
-            </div>
-            <div>
-              <Label className="text-xs">Confirm PIN</Label>
-              <Input type="password" value={lockDraftConfirm} onChange={(e) => setLockDraftConfirm(e.target.value)}
-                className="mt-1 rounded-xl" placeholder="••••" />
-            </div>
+            {lockSettingsMode === "verify" && (
+              <div>
+                <Label className="text-xs">Current PIN</Label>
+                <Input type="password" value={lockCurrentPin} onChange={(e) => { setLockCurrentPin(e.target.value); setLockSettingsErr(""); }}
+                  className="mt-1 rounded-xl" placeholder="••••" autoComplete="off" />
+              </div>
+            )}
+            {(lockSettingsMode === "new" || lockSettingsMode === "confirm") && (
+              <>
+                <div>
+                  <Label className="text-xs">New PIN (min 4)</Label>
+                  <Input type="password" value={lockDraftPin} onChange={(e) => { setLockDraftPin(e.target.value); setLockSettingsErr(""); }}
+                    className="mt-1 rounded-xl" placeholder="••••" autoComplete="off" />
+                </div>
+                <div>
+                  <Label className="text-xs">Confirm PIN</Label>
+                  <Input type="password" value={lockDraftConfirm} onChange={(e) => { setLockDraftConfirm(e.target.value); setLockSettingsErr(""); }}
+                    className="mt-1 rounded-xl" placeholder="••••" autoComplete="off" />
+                </div>
+              </>
+            )}
             {lockSettingsErr && <p className="text-xs text-red-600">{lockSettingsErr}</p>}
             <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-900">
-              {globalLock.enabled ? "Global lock is currently enabled. Setting a new PIN replaces the old one." : "Global lock is currently disabled."}
+              {globalLock.enabled && lockSettingsMode === "verify" ? "Enter your current PIN to proceed." : globalLock.enabled && lockSettingsMode !== "verify" ? "Global lock is currently enabled. Setting a new PIN will replace the old one." : "Global lock is currently disabled. Create a new PIN to enable it."}
             </div>
           </div>
           <DialogFooter className="sm:justify-between">
-            {globalLock.enabled ? <Button variant="destructive" onClick={disableGlobalLock}>Disable lock</Button> : <span />}
+            {globalLock.enabled && lockSettingsMode !== "verify" ? <Button variant="destructive" onClick={disableGlobalLock}>Disable lock</Button> : <span />}
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setLockSettingsOpen(false)}>Cancel</Button>
-              <Button onClick={saveGlobalLockSettings}>Save PIN</Button>
+              <Button variant="outline" onClick={() => {
+                setLockSettingsOpen(false);
+                setLockSettingsMode("verify");
+                setLockCurrentPin("");
+                setLockDraftPin("");
+                setLockDraftConfirm("");
+                setLockSettingsErr("");
+              }}>Cancel</Button>
+              <Button onClick={saveGlobalLockSettings}>{lockSettingsMode === "verify" ? "Next" : "Save PIN"}</Button>
             </div>
           </DialogFooter>
         </DialogContent>

@@ -82,7 +82,6 @@ export default function NoteEditor({
   const [locked, setLocked]                 = useState(Boolean(defaultLocked));
   const [pinned, setPinned]                 = useState(Boolean(defaultPinned));
   const [tags, setTags]                     = useState(() => Array.isArray(defaultTags) ? defaultTags : []);
-  const [tagDraft, setTagDraft]             = useState("");
   const [wordCount, setWordCount]           = useState(0);
   const [isSaved, setIsSaved]               = useState(true);
   const [isDirty, setIsDirty]               = useState(false);
@@ -348,19 +347,49 @@ export default function NoteEditor({
   const handleFontFamily    = (value) => { setFontFamily(value); execCommand("fontName", value); setIsDirty(true); };
   const handleFontSize      = (value) => {
     setFontSize(value);
+    editorRef.current?.focus();
+    
     const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      const span = document.createElement("span");
-      span.style.fontSize = `${value}px`;
-      try {
-        range.surroundContents(span);
+    if (!sel || sel.rangeCount === 0) return;
+    
+    const range = sel.getRangeAt(0);
+    
+    try {
+      if (!range.collapsed) {
+        // Text is selected - wrap it with font size span
+        const span = document.createElement("span");
+        span.style.fontSize = `${value}px`;
+        span.style.lineHeight = "1.2";
+        const contents = range.extractContents();
+        span.appendChild(contents);
+        range.insertNode(span);
+        
+        // Re-select the formatted text
         sel.removeAllRanges();
         const newRange = document.createRange();
         newRange.selectNodeContents(span);
         sel.addRange(newRange);
-      } catch { /* ignore */ }
+      } else {
+        // No selection - insert a span at cursor and position cursor inside
+        const span = document.createElement("span");
+        span.style.fontSize = `${value}px`;
+        span.style.lineHeight = "1.2";
+        span.innerHTML = "<br>";
+        range.insertNode(span);
+        
+        // Position cursor inside the span
+        const newRange = document.createRange();
+        newRange.setStart(span, 0);
+        newRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      }
+    } catch (e) {
+      console.error("Font size error:", e);
     }
+    
+    setIsDirty(true);
+    handleInput();
   };
   const handleTextColor  = (color) => { execCommand("foreColor", color); setShowColorPicker(false); };
   const handleHighlight  = (color) => { execCommand("hiliteColor", color); setShowHighlightPicker(false); };
@@ -408,7 +437,6 @@ export default function NoteEditor({
     const t = normalizeTag(raw);
     if (!t) return;
     setTags((prev) => prev.includes(t) ? prev : [...prev, t]);
-    setTagDraft("");
     setIsDirty(true);
   };
   const removeTagAt = (t) => { setTags((prev) => prev.filter((x) => x !== t)); setIsDirty(true); };
@@ -731,7 +759,7 @@ export default function NoteEditor({
                         onKeyUp={updateActiveFormats}
                         onMouseUp={updateActiveFormats}
                         onClick={handleEditorClick}
-                        className="flex-1 min-h-40 px-5 py-3 overflow-y-auto outline-none text-sm text-gray-700 leading-relaxed empty:before:content-['Start_writing_your_note...'] empty:before:text-gray-400"
+                        className="flex-1 min-h-40 px-5 py-3 overflow-y-auto outline-none text-sm text-gray-700 leading-normal empty:before:content-['Start_writing_your_note...'] empty:before:text-gray-400"
                         style={{ fontFamily }}
                       />
 
@@ -774,21 +802,8 @@ export default function NoteEditor({
                       {/* Tags */}
                       <div>
                         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tags</p>
-                        <form
-                          onSubmit={(e) => { e.preventDefault(); addTag(tagDraft); }}
-                          className="flex items-center gap-1 border border-gray-200 rounded-xl px-2 h-8 bg-gray-50 focus-within:bg-white focus-within:ring-1 focus-within:ring-blue-500"
-                        >
-                          <Tag className="h-3 w-3 text-gray-400 shrink-0" />
-                          <input
-                            value={tagDraft}
-                            onChange={(e) => setTagDraft(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === "," || e.key === "Enter") { e.preventDefault(); addTag(tagDraft); } }}
-                            placeholder="Add tag…"
-                            className="flex-1 text-xs bg-transparent outline-none text-gray-700 placeholder:text-gray-400 min-w-0"
-                          />
-                        </form>
                         {tags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1">
+                          <div className="mb-2 flex flex-wrap gap-1">
                             {tags.map((t) => (
                               <span key={t} className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700">
                                 #{t}
@@ -800,15 +815,17 @@ export default function NoteEditor({
                             ))}
                           </div>
                         )}
-                        {allTags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {allTags.filter((t) => !tags.includes(t)).slice(0, 8).map((t) => (
+                        {allTags.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {allTags.filter((t) => !tags.includes(t)).map((t) => (
                               <button key={t} type="button" onClick={() => addTag(t)}
                                 className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-200">
                                 +{t}
                               </button>
                             ))}
                           </div>
+                        ) : (
+                          <p className="text-xs text-gray-400 italic">Create tags in workspace settings to add them here</p>
                         )}
                       </div>
                     </>
