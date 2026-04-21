@@ -80,23 +80,12 @@ function WorkspaceNoteCard({ note, onOpen, onRename, onTrash, variant }) {
       onClick={() => onOpen(note)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(note); } }}
     >
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-xs"
-            className="absolute top-2 right-2 z-10 h-7 w-7 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100 transition-opacity"
-            aria-label={`Note actions: ${note.title}`}
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}>
-            <MoreVertical className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => onOpen(note)}>Open</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onRename(note)}>Rename</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={() => onTrash(note)}>Move to trash</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Button type="button" variant="ghost" size="icon-xs"
+        className="absolute top-2 right-2 z-10 h-7 w-7 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100 transition-opacity"
+        aria-label={`Move to trash: ${note.title}`}
+        onClick={(e) => { e.stopPropagation(); onTrash(note); }}>
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
 
       {variant === "voice" && !isLocked && (
         <div className="mb-2 flex h-20 items-center justify-center rounded-lg border border-yellow-200/80 bg-yellow-50/50">
@@ -685,9 +674,18 @@ export default function Dashboard() {
               <Tabs value={timeTab} onValueChange={setTimeTab}>
                 <TabsList className="h-8 rounded-xl bg-muted/50 p-0.5">
                   {NAV_TABS.map((t) => (
-                    <TabsTrigger key={t} value={t} className="h-7 rounded-lg px-3 text-xs whitespace-nowrap data-[state=active]:bg-white data-[state=active]:shadow-sm">
-                      {t}
-                    </TabsTrigger>
+                    <TabsTrigger
+  key={t}
+  value={t}
+  className="
+    h-7 rounded-lg px-3 text-xs whitespace-nowrap
+    data-[state=active]:bg-blue-600
+    data-[state=active]:text-white
+    data-[state=active]:shadow-sm
+  "
+>
+  {t}
+</TabsTrigger>
                   ))}
                 </TabsList>
               </Tabs>
@@ -897,26 +895,19 @@ export default function Dashboard() {
                           )}
                           onClick={() => requestOpenFolder(folder)}
                           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); requestOpenFolder(folder); } }}>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button type="button" variant="ghost" size="icon-xs"
-                                className="absolute top-2 right-2 z-10 h-7 w-7 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100"
-                                aria-label={`Folder actions: ${folder.name}`}
-                                onClick={(e) => e.stopPropagation()}
-                                onPointerDown={(e) => e.stopPropagation()}>
-                                <MoreVertical className="h-3.5 w-3.5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => requestOpenFolder(folder)}>Open</DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => openRename("folder", folder.id, folder.name)}>Rename</DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => { if (window.confirm("Archive this folder and everything inside it?")) archiveFolderCascade(folder.id); }}>
-                                <Archive className="h-4 w-4" /> Archive folder
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem variant="destructive" onSelect={() => moveFolderToTrash(folder)}>Move to trash</DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          <Button type="button" variant="ghost" size="icon-xs"
+                            className="absolute top-2 right-2 z-10 h-7 w-7 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100"
+                            aria-label={`Move folder to trash: ${folder.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!window.confirm("Move this folder to trash?")) return;
+                              moveFolderToTrash(folder);
+                              setBrowseFolderId(null);
+                              setSidebarView("workspace");
+                              setActiveTag(null);
+                            }}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
 
                           <div className="mb-2 flex items-center gap-1.5">
                             <Folder className={cn("h-7 w-7", folder.iconColor)} />
@@ -967,7 +958,7 @@ export default function Dashboard() {
                       <WorkspaceNoteCard key={note.id} note={note} variant="voice"
                         onOpen={requestOpenNote}
                         onRename={() => openRename("note", note.id, note.title)}
-                        onTrash={moveNoteToTrash}
+                        onTrash={(note) => { moveNoteToTrash(note); setBrowseFolderId(null); setSidebarView("workspace"); setActiveTag(null); }}
                       />
                     ))}
                   </div>
